@@ -1,11 +1,11 @@
 import express from "express";
 import { errorHandler } from './middleware/err.middleware';
 import healthRouter from './routes/healthRouter'
-import userRouter from './routes/user'
+import userRouter from './routes/user.routes'
 import cors from "cors";
 import { AppError } from "./utils/AppError";
 import { asyncHandler } from "./utils/AsyncHandler";
-import testRoute from './routes/testRoute'
+
 
 const app =express();
 
@@ -15,7 +15,7 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use("/health",healthRouter)
 app.use("/user",userRouter);
-app.use("/db-test",testRoute)
+
 
 
 app.get("/user-test", asyncHandler(async(req, res, next) => {
