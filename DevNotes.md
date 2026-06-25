@@ -46,3 +46,21 @@ I added duplicate email checking in `createUser()` and throw `AppError` with sta
 I added a basic `GET /user` route in `routes/user.routes.ts` to fetch all users from the database.
 I updated `app.ts` to mount `user.routes.ts` at `/user`.
 I created `DetailedNotes.md` as a detailed handoff note for Vikash with the current backend status, explanations, testing steps, and pending work.
+
+
+
+# Vikas 25 Jun 2026
+I added a reusable Redis caching layer to the backend (infrastructure only, no business logic yet).
+I installed the `redis` client and added `REDIS_URL=redis://localhost:6379` to the backend `.env`.
+I installed and started the Redis server locally with `brew install redis` and `brew services start redis` (the npm `redis` package is only the client, not the server).
+I created the Redis client in `cache/redis.ts` that configures the client, logs connect/error/disconnect via Winston, and exposes a `connectRedis()` helper.
+I learned the redis v4 client does not auto-connect, so I call `await connectRedis()` from `server.ts` before `app.listen()`.
+I wrapped startup so a Redis outage logs the error but does not crash the server (a cache is a performance layer, not a correctness layer).
+I created `CacheService` in `services/cache.service.ts` with generic `get`, `set`, `del`, and `exists` methods.
+I made the service handle JSON serialization (`JSON.stringify` on set, `JSON.parse` on get) so callers always work with objects.
+I added cache hit/miss logging inside `get()` (a missing key returns null and logs a MISS).
+I added optional TTL support in `set()` using `{ EX: ttl }` so keys can auto-expire.
+I created the `GET /redis-test` health route in `routes/redisRoute.ts` that pings Redis and returns `{ success: true, message: "Redis connected" }`.
+I mounted the redis route in `app.ts` at `/redis-test`.
+I verified everything end to end: server connects, health check passes, set/get/del/exists work, objects round-trip, TTL is honored, and hit/miss logs appear in `logs/combined.log`.
+I updated `DetailedNotes.md` with a full explanation of the Redis layer.
