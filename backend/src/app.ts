@@ -4,8 +4,6 @@ import healthRouter from './routes/healthRouter'
 import userRouter from './routes/user.routes'
 import redisRouter from './routes/redisRoute'
 import cors from "cors";
-import { AppError } from "./utils/AppError";
-import { asyncHandler } from "./utils/AsyncHandler";
 
 
 const app =express();
@@ -25,5 +23,6 @@ app.get("/user-test", asyncHandler(async(req, res, next) => {
 }));
 
 app.use(errorHandler);
+
 
 export default app;

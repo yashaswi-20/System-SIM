@@ -1,13 +1,16 @@
 import { Router } from "express";
-import { UserRepository } from "../repositories/user.repository";
-import { asyncHandler } from "../utils/AsyncHandler";
+import { UserController } from "../controllers/user.controller"
 
 const router = Router();
-const userRepository = new UserRepository();
+const controller = new UserController();
 
-router.get("/", asyncHandler(async (req, res) => {
-    const users = await userRepository.findAll();
-    res.status(200).json({ success: true, users });
-}));
+
+router.get("/", controller.getUser);
+
+router.get("/:id", controller.getUserById);
+
+router.post("/", controller.createUser);
+
+router.delete("/:id", controller.deleteUser);
 
 export default router;
