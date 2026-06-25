@@ -11,6 +11,11 @@ router.get(
     const result = await pool.query("SELECT NOW()");
     res.status(200).json({success: true, timestamp: result.rows[0].now });
   }),
+
+  
+
 );
+
+
 
 export default router;
