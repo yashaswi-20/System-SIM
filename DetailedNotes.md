@@ -1,44 +1,40 @@
 # Detailed Backend Handoff Notes for Vikash
 
-Date: 17 Jun 2026
+Date: 4 Jul 2026
 
-This file is a detailed handoff summary of what has been done in the repository so far, based on `DevNotes.md` and the backend files currently present in the project.
+This file is the detailed handoff summary for the current backend state. It follows the same order as the work captured in `DevNotes.md`, then documents the current code flow and latest Redis cache changes.
 
 ## Current Backend Stack
 
-The backend is built with:
+The backend currently uses:
 
 - Express
 - TypeScript
 - PostgreSQL using the `pg` package
+- Redis using the `redis` package
 - Zod for request validation
 - Winston for logging
 - dotenv for environment variables
 
-The backend entry point is:
+Main backend files:
 
 - `backend/src/server.ts`
-
-The Express app setup is in:
-
 - `backend/src/app.ts`
 
-## Work Completed Earlier
+## Work Completed In Order
 
 ### Yashaswi - 15 Jun 2026
 
-Yashaswi set up the initial backend structure using Express and TypeScript.
+Initial backend setup:
 
-Completed items:
-
-- Created the Express backend.
-- Added a health route to verify that the server is running.
-- Created `AppError` for custom application errors with status codes.
-- Added `asyncHandler` to automatically catch async route errors.
+- Set up the backend with Express and TypeScript.
+- Added a health route to verify the server is running.
+- Created `AppError` for custom errors with status codes.
+- Added `asyncHandler` to catch async route errors automatically.
 - Added a global error middleware for consistent error responses.
 - Set up Winston logger for console and file-based logging.
 
-Important files from this phase:
+Important files:
 
 - `backend/src/app.ts`
 - `backend/src/server.ts`
@@ -50,55 +46,38 @@ Important files from this phase:
 
 ### Vikash - 16 Jun 2026
 
-Vikash added validation support for user routes using Zod.
+Validation and request parsing:
 
-Completed items:
-
-- Added `userSchema` in `backend/src/validators/user.validator.ts`.
-- The schema validates:
-  - `name` must be at least 3 characters.
-  - `email` must be a valid email address.
-- Added a reusable `validate` middleware in `backend/src/middleware/validate.middleware.ts`.
-- The validation middleware parses `req.body` and returns status `400` when validation fails.
-- For Zod v4, validation errors are read from `error.issues`, not `error.errors`.
-- Mounted the user router in `app.ts`.
+- Added request validation for user routes using Zod.
+- Created `userSchema` in `backend/src/validators/user.validator.ts`.
+- The schema validates that `name` has at least 3 characters.
+- The schema validates that `email` is a valid email address.
+- Added reusable validation middleware in `backend/src/middleware/validate.middleware.ts`.
+- The validation middleware returns status `400` and `error.issues` when validation fails.
 - Added `express.json()` in `app.ts` so JSON request bodies are parsed.
 - Noted that macOS reserves port `5000` for AirPlay, so the backend uses port `4000`.
 
-Important files from this phase:
+Important files:
 
 - `backend/src/validators/user.validator.ts`
 - `backend/src/middleware/validate.middleware.ts`
-- `backend/src/routes/user.ts`
+- `backend/src/routes/user.routes.ts`
 - `backend/src/app.ts`
 
 ### Yashaswi - 16 Jun 2026
 
-Yashaswi added PostgreSQL database support.
+PostgreSQL support:
 
-Completed items:
-
-- Installed and configured PostgreSQL support using the `pg` package.
+- Added PostgreSQL support using the `pg` package.
 - Created a shared PostgreSQL pool in `backend/src/database/postgres.ts`.
-- The pool reads the database connection string from `process.env.DATABASE_URL`.
-- Enabled dotenv loading in `backend/src/server.ts` using:
+- The pool reads `DATABASE_URL` from the environment.
+- Enabled dotenv loading in `backend/src/server.ts`.
+- Updated the port config to use `process.env.PORT` with `4000` as fallback.
+- Added URL-encoded body parsing in `app.ts`.
+- Created a `/db-test` route that runs `SELECT NOW()` for database testing.
+- Added temporary error logging in the global error middleware.
 
-```ts
-import 'dotenv/config';
-```
-
-- Updated port configuration so the server uses `process.env.PORT` or falls back to `4000`.
-- Added URL-encoded body parsing in `app.ts` for form-style payloads.
-- Created a `/db-test` route that runs:
-
-```sql
-SELECT NOW()
-```
-
-- Mounted the DB test route in `app.ts`.
-- Added temporary error logging in the global error middleware to make backend failures easier to debug.
-
-Important files from this phase:
+Important files:
 
 - `backend/src/database/postgres.ts`
 - `backend/src/routes/testRoute.ts`
@@ -106,19 +85,269 @@ Important files from this phase:
 - `backend/src/app.ts`
 - `backend/src/middleware/err.middleware.ts`
 
-## Changes Made Today - 17 Jun 2026
+### Yashaswi - 17 Jun 2026
 
-Today, Yashaswi started building the user repository and service layer.
+User type, repository, and service layer:
 
-The main goal was to move user-related database operations into a repository class and then call those repository methods from a service class.
+- Added the `User` interface in `backend/src/types/user.types.ts`.
+- Created `UserRepository` in `backend/src/repositories/user.repository.ts`.
+- Added repository methods for:
+  - `findAll()`
+  - `findById(id)`
+  - `findByEmail(email)`
+  - `create(name, email)`
+  - `delete(id)`
+- Fixed the Postgres pool import to use the default export from `database/postgres.ts`.
+- Fixed the user list query to use `ORDER BY created_at DESC`.
+- Updated `findAll()` to return `Promise<User[]>`.
+- Created `UserService` in `backend/src/services/user.service.ts`.
+- Added duplicate email checking in `createUser()`.
+- Added `AppError("Email already Exist", 409)` when the email already exists.
+- Added a first user route for fetching users.
+- Created this detailed handoff file.
 
-### User Type Added
-
-A `User` interface exists in:
+Important files:
 
 - `backend/src/types/user.types.ts`
+- `backend/src/repositories/user.repository.ts`
+- `backend/src/services/user.service.ts`
+- `backend/src/routes/user.routes.ts`
+- `DetailedNotes.md`
 
-Current shape:
+### Current User Controller And Routes
+
+The current route layer now uses `UserController`.
+
+Current route file:
+
+- `backend/src/routes/user.routes.ts`
+
+Current routes:
+
+```ts
+router.get("/", controller.getUser);
+router.get("/:id", controller.getUserById);
+router.post("/", controller.createUser);
+router.delete("/:id", controller.deleteUser);
+```
+
+The current flow is:
+
+```txt
+Route -> Controller -> Service -> Repository -> Database
+```
+
+For `GET /users/:id`, the current flow includes Redis:
+
+```txt
+Route -> Controller -> Service -> Redis
+                         |
+                         -> Repository -> Database
+```
+
+Current controller file:
+
+- `backend/src/controllers/user.controller.ts`
+
+Controller methods:
+
+- `getUser`
+- `getUserById`
+- `createUser`
+- `deleteUser`
+
+### Yashaswi - 4 Jul 2026
+
+Redis cache metrics and user caching:
+
+- Created `backend/src/cache/cacheMetrices.ts`.
+- Added in-memory counters for:
+  - `cacheHits`
+  - `cacheMisses`
+  - `hitRate`
+- Added `incrementHits()`.
+- Added `incrementMisses()`.
+- Added `getMetrics()`.
+- Imported `cacheMetrices` into `backend/src/app.ts`.
+- Added `GET /cache/stats` in `app.ts`.
+- Kept `GET /redis-test` in `app.ts` for a Redis smoke test.
+- Mounted the user router at `/users`.
+- Imported `redisClient`, `cacheMetrices`, and `logger` into `UserService`.
+- Updated `getUserById(id)` to check Redis before PostgreSQL.
+- Uses the Redis key format `user:${id}`.
+- On cache hit:
+  - increments cache hits
+  - logs `Cache HIT for user ${id}`
+  - parses the cached JSON
+  - returns the cached user
+- On cache miss:
+  - fetches the user from PostgreSQL
+  - throws `AppError("User not found", 404)` if no user exists
+  - increments cache misses
+  - logs `Cache MISS for user ${id}`
+  - stores the user in Redis for 1 hour using `EX: 3600`
+  - returns the database user
+- Updated `createUser(name, email)` to cache the newly created user under `user:${newUser.id}`.
+- Updated `deleteUser(id)` to delete the user from PostgreSQL and delete the matching Redis key.
+
+Important files:
+
+- `backend/src/cache/redis.ts`
+- `backend/src/cache/cacheMetrices.ts`
+- `backend/src/services/user.service.ts`
+- `backend/src/app.ts`
+
+## Current App Wiring
+
+Current middleware and routes in `backend/src/app.ts`:
+
+```ts
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+app.get("/redis-test", async (req, res) => {
+    await redisClient.set("test", "hello redis");
+    const value = await redisClient.get("test");
+    res.json({ value });
+});
+
+app.use("/health", healthRouter);
+app.use("/users", userRouter);
+
+app.get("/cache/stats", (req, res) => {
+    res.status(200).json(cacheMetrices.getMetrics());
+});
+
+app.use(errorHandler);
+```
+
+Current active endpoints:
+
+```txt
+GET    /health
+GET    /redis-test
+GET    /users
+GET    /users/:id
+POST   /users
+DELETE /users/:id
+GET    /cache/stats
+```
+
+Important route note:
+
+- The current user base path is `/users`.
+- Older notes mentioned `/user`; that is no longer the current mounted path.
+
+## Current Redis Files
+
+Redis client file:
+
+- `backend/src/cache/redis.ts`
+
+Current behavior:
+
+- Creates the Redis client with `createClient()`.
+- Logs Redis client errors with Winston.
+- Connects immediately when the module is imported.
+- Logs success when Redis connects.
+- Logs failure if Redis connection fails.
+- Exports `redisClient`.
+
+Cache metrics file:
+
+- `backend/src/cache/cacheMetrices.ts`
+
+Current metric response shape:
+
+```json
+{
+  "cacheHits": 0,
+  "cacheMisses": 0,
+  "hitRate": "0.00%"
+}
+```
+
+Notes:
+
+- Metrics are stored in memory, so they reset when the backend process restarts.
+- Metrics currently count `getUserById()` cache hits and misses.
+- The file and export are currently named `cacheMetrices`.
+
+## Current User Service Behavior
+
+Current service file:
+
+- `backend/src/services/user.service.ts`
+
+Methods:
+
+- `getUsers()`
+- `getUserById(id)`
+- `createUser(name, email)`
+- `deleteUser(id)`
+
+### `getUsers()`
+
+Fetches all users from PostgreSQL through `UserRepository.findAll()`.
+
+### `getUserById(id)`
+
+Uses Redis first:
+
+```txt
+Redis key: user:${id}
+```
+
+Behavior:
+
+- Reads from Redis with `redisClient.get(cacheKey)`.
+- If cached data exists, it increments cache hits and returns `JSON.parse(cacheData)`.
+- If cached data does not exist, it reads from PostgreSQL.
+- If PostgreSQL returns no user, it throws `AppError("User not found", 404)`.
+- If PostgreSQL returns a user, it increments cache misses and caches the user for 1 hour.
+
+### `createUser(name, email)`
+
+Behavior:
+
+- Checks for an existing user by email.
+- Throws status `409` if the email already exists.
+- Creates the user in PostgreSQL.
+- Stores the newly created user in Redis using `user:${newUser.id}`.
+- Returns the created user.
+
+### `deleteUser(id)`
+
+Behavior:
+
+- Deletes the user from PostgreSQL.
+- Deletes the Redis cache key `user:${id}`.
+- Does not currently return the deleted user.
+
+## How To Run And Test
+
+From the backend folder:
+
+```bash
+cd backend
+npm run dev
+```
+
+Expected server URL:
+
+```txt
+http://localhost:4000
+```
+
+Requirements:
+
+- PostgreSQL must be running.
+- `.env` must contain `DATABASE_URL`.
+- Redis must be running and reachable by the default Redis client config.
+- The database must have a `users` table.
+
+The `users` table should match the current `User` type:
 
 ```ts
 export interface User {
@@ -129,323 +358,41 @@ export interface User {
 }
 ```
 
-This type represents rows from the `users` table.
-
-### User Repository Added
-
-The repository is in:
-
-- `backend/src/repositories/user.repository.ts`
-
-The repository imports the shared Postgres pool:
-
-```ts
-import pool from "../database/postgres"
-```
-
-Important note: `pool` is a default export from `database/postgres.ts`, so it must be imported without curly braces.
-
-Correct:
-
-```ts
-import pool from "../database/postgres"
-```
-
-Incorrect:
-
-```ts
-import { pool } from "../database/postgres"
-```
-
-Current repository methods:
-
-- `findAll()`
-- `findById(id: string)`
-- `create(name: string, email: string)`
-- `delete(id: string)`
-- `findByEmail(email: string)`
-
-Current implementation summary:
-
-```ts
-export class UserRepository {
-    async findAll(): Promise<User[]> {
-        const result = await pool.query<User>(
-            `SELECT * FROM users ORDER BY created_at DESC`
-        );
-        return result.rows;
-    }
-
-    async findById(id: string): Promise<User | null> {
-        const result = await pool.query(
-            `SELECT * FROM users WHERE id = $1`, [id]
-        )
-        return result.rows[0] || null
-    }
-
-    async create(name: string, email: string): Promise<User> {
-        const result = await pool.query(
-            `INSERT INTO users (name,email) VALUES ($1, $2) RETURNING *`, [name, email]
-        )
-        return result.rows[0]
-    }
-
-    async delete(id: string): Promise<User> {
-        const result = await pool.query(
-            `DELETE FROM users WHERE id=$1 RETURNING *`, [id]
-        )
-        return result.rows[0]
-    }
-
-    async findByEmail(email: string): Promise<User | null> {
-        const result = await pool.query(
-            `SELECT * FROM users WHERE email=$1`, [email]
-        )
-        return result.rows[0] || null;
-    }
-}
-```
-
-Important correction made today:
-
-- SQL should use `ORDER BY`, not `ORDERED BY`.
-- `findAll()` returns an array, so its return type should be `Promise<User[]>`, not `Promise<User | null>`.
-
-### User Service Added
-
-The service is in:
-
-- `backend/src/services/user.service.ts`
-
-The service creates a private repository instance:
-
-```ts
-private repository = new UserRepository();
-```
-
-This means the repository belongs to each `UserService` object and is accessed using:
-
-```ts
-this.repository
-```
-
-Current service methods:
-
-- `getUsers()`
-- `getUserById(id: string)`
-- `createUser(name: string, email: string)`
-- `deleteUser(id: string)`
-
-Current implementation summary:
-
-```ts
-export class UserService {
-    private repository = new UserRepository();
-
-    async getUsers() {
-        return await this.repository.findAll();
-    }
-
-    async getUserById(id: string) {
-        return await this.repository.findById(id);
-    }
-
-    async createUser(name: string, email: string) {
-        const existingUser = await this.repository.findByEmail(email);
-
-        if (existingUser) {
-            throw new AppError("Email already Exist", 409);
-        }
-
-        return await this.repository.create(name, email);
-    }
-
-    async deleteUser(id: string) {
-        return await this.repository.delete(id);
-    }
-}
-```
-
-Why `this.repository` is used:
-
-- `repository` is a class property.
-- Class properties must be accessed through `this`.
-- Without `this`, TypeScript looks for a local variable named `repository`, which does not exist.
-
-Example:
-
-```ts
-this.repository.findAll(); // correct
-repository.findAll();      // incorrect unless a local/global repository variable exists
-```
-
-Why this structure is useful:
-
-- The service owns its repository dependency.
-- The same repository instance can be reused across service methods.
-- It keeps database logic in the repository and business logic in the service.
-- Later, the repository can be injected through the constructor to make testing easier.
-
-Possible future testing-friendly version:
-
-```ts
-export class UserService {
-    constructor(private repository = new UserRepository()) {}
-
-    async getUsers() {
-        return this.repository.findAll();
-    }
-}
-```
-
-### Current User Route
-
-The current user route is in:
-
-- `backend/src/routes/user.routes.ts`
-
-Current route:
-
-```ts
-router.get("/", asyncHandler(async (req, res) => {
-    const users = await userRepository.findAll();
-    res.status(200).json({ success: true, users });
-}));
-```
-
-This means:
-
-- `GET /user` currently returns all users from the database.
-- It currently calls `UserRepository` directly.
-- The next improvement should be to call `UserService` instead of calling the repository directly from the route.
-
-Recommended next route structure:
-
-```ts
-const userService = new UserService();
-
-router.get("/", asyncHandler(async (req, res) => {
-    const users = await userService.getUsers();
-    res.status(200).json({ success: true, users });
-}));
-```
-
-This would keep the flow cleaner:
+Manual test order:
 
 ```txt
-Route -> Service -> Repository -> Database
+GET    http://localhost:4000/health
+GET    http://localhost:4000/redis-test
+POST   http://localhost:4000/users
+GET    http://localhost:4000/users
+GET    http://localhost:4000/users/:id
+GET    http://localhost:4000/users/:id
+GET    http://localhost:4000/cache/stats
+DELETE http://localhost:4000/users/:id
+GET    http://localhost:4000/users/:id
 ```
 
-## Current App Wiring
+Expected cache behavior:
 
-In `backend/src/app.ts`, the current user router is mounted as:
-
-```ts
-app.use("/user", userRouter);
-```
-
-So the current user list endpoint is:
-
-```txt
-GET http://localhost:4000/user
-```
-
-The health route is:
-
-```txt
-GET http://localhost:4000/health
-```
-
-The async error test route is:
-
-```txt
-GET http://localhost:4000/user-test
-```
-
-Note: The older `/db-test` route was mentioned in `DevNotes.md`, but the current `app.ts` no longer mounts `testRoute`. If we still want `/db-test`, it should be re-added to `app.ts`.
-
-## How to Run and Test
-
-From the backend folder:
-
-```bash
-cd backend
-npm run dev
-```
-
-The server should run on:
-
-```txt
-http://localhost:4000
-```
-
-To test whether the backend is alive:
-
-```txt
-GET http://localhost:4000/health
-```
-
-To test fetching users:
-
-```txt
-GET http://localhost:4000/user
-```
-
-Requirements for the user endpoint:
-
-- `.env` must contain `DATABASE_URL`.
-- PostgreSQL must be running.
-- The connected database must have a `users` table.
-- The `users` table should contain columns matching the `User` interface:
-  - `id`
-  - `name`
-  - `email`
-  - `created_at`
-
-The project currently compiles successfully with:
-
-```bash
-npm run build
-```
+- The first `GET /users/:id` should miss Redis, fetch from PostgreSQL, and cache the user.
+- The second `GET /users/:id` for the same id should hit Redis.
+- `GET /cache/stats` should show updated `cacheHits`, `cacheMisses`, and `hitRate`.
+- `DELETE /users/:id` should remove the database row and delete the Redis cache key.
 
 ## Important Pending Work
 
-The following items should be handled next:
+Pending items:
 
-- Connect `user.routes.ts` to `UserService` instead of using `UserRepository` directly.
-- Fill in `backend/src/controllers/user.controller.ts` or remove it if we do not plan to use a controller layer.
-- Decide the final route flow:
+- Add validation middleware to `POST /users` using the existing Zod `userSchema`.
+- Decide whether missing deletes should return `404` instead of always returning success.
+- Consider changing `UserRepository.delete(id)` to return `Promise<User | null>`.
+- Align Redis TTL behavior: `getUserById()` caches with `EX: 3600`, while `createUser()` currently stores without an expiry.
+- Decide whether to rename `cacheMetrices` to `cacheMetrics` for spelling consistency.
+- Decide whether `/redis-test` should remain in production-facing app wiring.
+- Decide whether `/db-test` should be re-mounted or kept only as old test code.
+- Consider adding a Redis URL environment variable if local/default Redis is not enough.
+- Add automated tests for service caching behavior and user controller routes.
 
-```txt
-Route -> Controller -> Service -> Repository
-```
+## Short Summary
 
-or:
-
-```txt
-Route -> Service -> Repository
-```
-
-- Add routes for:
-  - `GET /user/:id`
-  - `POST /user`
-  - `DELETE /user/:id`
-- Use the existing Zod validation middleware for creating users.
-- Decide what response should be returned when deleting a user that does not exist.
-- Consider changing `delete(id)` return type to `Promise<User | null>` because `DELETE ... RETURNING *` can return no rows.
-- Consider using `pool.query<User>()` consistently in all repository methods for stronger TypeScript typing.
-- Confirm whether `/db-test` should remain available and re-mount it if needed.
-
-## Short Summary for Vikash
-
-The backend now has the foundation for a proper user module. Earlier work set up Express, error handling, logging, validation, and PostgreSQL. Today, Yashaswi added the `User` type, `UserRepository`, and `UserService`.
-
-The current working endpoint is:
-
-```txt
-GET /user
-```
-
-It returns all users ordered by `created_at DESC`.
-
-The next best step is to connect the route to `UserService`, then add full CRUD routes using the existing repository and validation middleware.
+The backend now has a full user flow through route, controller, service, and repository layers. Users are mounted under `/users`. Redis is connected through `backend/src/cache/redis.ts`, individual user lookups are cached by id, and `GET /cache/stats` exposes in-memory cache hit and miss metrics.

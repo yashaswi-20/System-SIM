@@ -46,3 +46,22 @@ I added duplicate email checking in `createUser()` and throw `AppError` with sta
 I added a basic `GET /user` route in `routes/user.routes.ts` to fetch all users from the database.
 I updated `app.ts` to mount `user.routes.ts` at `/user`.
 I created `DetailedNotes.md` as a detailed handoff note for Vikash with the current backend status, explanations, testing steps, and pending work.
+
+
+
+# Yashaswi 4 Jul 2026
+I added Redis-backed caching support to the user service flow.
+I created `cacheMetrices` in `backend/src/cache/cacheMetrices.ts` to track cache hits, cache misses, and hit rate.
+I imported `cacheMetrices` into `app.ts`.
+I added `GET /cache/stats` in `app.ts` so cache metrics can be checked from the API.
+I kept the Redis smoke-test route at `GET /redis-test`.
+I updated `app.ts` so the user router is mounted at `/users`.
+I updated `UserService` to import `redisClient`, `cacheMetrices`, and `logger`.
+I changed `getUserById(id)` so it checks Redis first using the key `user:${id}`.
+I increment cache hits, log a cache hit, parse the cached JSON, and return it when Redis has the user.
+I fetch the user from PostgreSQL when Redis does not have the user.
+I throw `AppError("User not found", 404)` when the repository cannot find a user by id.
+I increment cache misses, log a cache miss, and store the database result in Redis for 1 hour with `EX: 3600`.
+I updated `createUser(name, email)` so a newly created user is stored in Redis under `user:${newUser.id}`.
+I updated `deleteUser(id)` so it deletes the user from PostgreSQL and removes the matching Redis cache key.
+I updated `DetailedNotes.md` with the current ordered backend flow, active endpoints, cache behavior, testing steps, and remaining pending work.
