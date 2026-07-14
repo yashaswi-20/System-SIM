@@ -25,8 +25,8 @@ class UserController {
         });
     });
     createUser = (0, AsyncHandler_1.asyncHandler)(async (req, res) => {
-        const { name, email } = req.body;
-        const user = await this.service.createUser(name, email);
+        const { name, email, password } = req.body;
+        const user = await this.service.createUser(name, email, password);
         res.status(201).json({
             success: true,
             data: user

@@ -17,11 +17,12 @@ export class UserRepository {
         return result.rows[0] || null
     }
 
-    async create(name:string, email:string) :Promise<User>{
-        const result  = await pool.query(
-            `INSERT INTO users (name,email) VALUES ($1, $2) RETURNING *`,[name, email]
-        )
-        return result.rows[0]
+    async create(name: string, email: string, passwordHash: string, role: string = "USER"): Promise<User> {
+        const result = await pool.query(
+            `INSERT INTO users (name, email, password, role) VALUES ($1, $2, $3, $4) RETURNING *`,
+            [name, email, passwordHash, role]
+        );
+        return result.rows[0];
     }
     async delete(id:string) :Promise<User>{
         const result = await pool.query(

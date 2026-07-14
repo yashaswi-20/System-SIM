@@ -65,3 +65,24 @@ I increment cache misses, log a cache miss, and store the database result in Red
 I updated `createUser(name, email)` so a newly created user is stored in Redis under `user:${newUser.id}`.
 I updated `deleteUser(id)` so it deletes the user from PostgreSQL and removes the matching Redis cache key.
 I updated `DetailedNotes.md` with the current ordered backend flow, active endpoints, cache behavior, testing steps, and remaining pending work.
+
+
+
+# Yashaswi 14 Jul 2026
+I added authentication-related backend files under `backend/src/auth`.
+I added `AuthService`, `AuthController`, and `auth.routes.ts`.
+I mounted the auth router in `app.ts` at `/auth`.
+I added password hashing and comparison support using bcrypt.
+I created `utils/password.ts` with `hashPassword()` and `comparePassword()`.
+I added JWT access-token generation using `jsonwebtoken`.
+I created `utils/jwt.ts` with a typed JWT payload containing `id`, `email`, and `role`.
+I configured JWT signing to read `JWT_SECRET` and `JWT_EXPIRES_IN` from environment variables, with development fallbacks.
+I fixed the TypeScript overload issue in `jwt.sign()` by typing the secret as `Secret` and `expiresIn` as `SignOptions["expiresIn"]`.
+I updated the `User` type to include optional `password` and required `role`.
+I updated `UserRepository.create()` so users are inserted with `name`, `email`, hashed `password`, and a default `role` of `USER`.
+I updated `UserRepository.findByEmail()` so auth login can fetch users by email.
+I updated the user creation flow so `POST /users` now expects `name`, `email`, and `password`, hashes the password, removes it from the returned user object, and caches the safe user object.
+I added auth validation schemas in `validators/auth.validator.ts` for register and login request bodies.
+I added login logic that checks email/password, compares the submitted password with the stored hash, returns a generic `Invalid credentials` error on failure, and returns an access token on success.
+Current note: `POST /auth/register` is currently wired to `controller.login` while using `registerSchema`; this should be aligned before the auth route is treated as complete.
+I updated `DetailedNotes.md` with the current auth flow, JWT behavior, active endpoints, testing notes, and pending cleanup items.

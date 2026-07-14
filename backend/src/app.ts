@@ -5,6 +5,7 @@ import userRouter from './routes/user.routes'
 import { redisClient } from "./cache/redis";
 import cors from "cors";
 import { cacheMetrices } from "./cache/cacheMetrices";
+import authRouter from "./auth/auth.routes";
 
 
 const app =express();
@@ -21,6 +22,7 @@ app.get("/redis-test", async (req, res) => {
 
 
 app.use("/health",healthRouter)
+app.use("/auth", authRouter);
 app.use("/users", userRouter);
 
 app.get("/cache/stats", (req, res) => {

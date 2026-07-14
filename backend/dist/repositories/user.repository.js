@@ -14,8 +14,8 @@ class UserRepository {
         const result = await postgres_1.default.query(`SELECT * FROM users WHERE id = $1`, [id]);
         return result.rows[0] || null;
     }
-    async create(name, email) {
-        const result = await postgres_1.default.query(`INSERT INTO users (name,email) VALUES ($1, $2) RETURNING *`, [name, email]);
+    async create(name, email, passwordHash, role = "USER") {
+        const result = await postgres_1.default.query(`INSERT INTO users (name, email, password, role) VALUES ($1, $2, $3, $4) RETURNING *`, [name, email, passwordHash, role]);
         return result.rows[0];
     }
     async delete(id) {

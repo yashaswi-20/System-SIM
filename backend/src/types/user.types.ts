@@ -1,6 +1,8 @@
-export interface User{
-    id: string,
-    name:string,
-    email:string,
-    created_at:Date;
+export interface User {
+    id: string;
+    name: string;
+    email: string;
+    password?: string; // Stored hash, kept optional for safe returns
+    role: string;
+    created_at: Date;
 }

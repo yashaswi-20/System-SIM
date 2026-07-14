@@ -30,9 +30,9 @@ export class UserController{
     })
 
     createUser = asyncHandler(async(req:Request ,res :Response)=>{
-        const {name,email} = req.body;
+        const {name,email,password} = req.body;
 
-        const user= await this.service.createUser(name,email);
+        const user= await this.service.createUser(name,email,password);
 
         res.status(201).json({
             success:true,
