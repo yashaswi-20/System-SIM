@@ -81,8 +81,27 @@ I fixed the TypeScript overload issue in `jwt.sign()` by typing the secret as `S
 I updated the `User` type to include optional `password` and required `role`.
 I updated `UserRepository.create()` so users are inserted with `name`, `email`, hashed `password`, and a default `role` of `USER`.
 I updated `UserRepository.findByEmail()` so auth login can fetch users by email.
-I updated the user creation flow so `POST /users` now expects `name`, `email`, and `password`, hashes the password, removes it from the returned user object, and caches the safe user object.
+At that point, I updated the user creation flow so `POST /users` expected `name`, `email`, and `password`, hashed the password, removed it from the returned user object, and cached the safe user object.
 I added auth validation schemas in `validators/auth.validator.ts` for register and login request bodies.
 I added login logic that checks email/password, compares the submitted password with the stored hash, returns a generic `Invalid credentials` error on failure, and returns an access token on success.
-Current note: `POST /auth/register` is currently wired to `controller.login` while using `registerSchema`; this should be aligned before the auth route is treated as complete.
+Historical note from this point: `POST /auth/register` was wired to `controller.login` while using `registerSchema`; this needed to be aligned before the auth route was treated as complete.
 I updated `DetailedNotes.md` with the current auth flow, JWT behavior, active endpoints, testing notes, and pending cleanup items.
+
+
+
+# Yashaswi 22 Aug 2026
+I completed the auth route cleanup so `/auth/register` now calls `controller.register` and `/auth/login` calls `controller.login`.
+I added refresh-token support with `RefreshTokenRepository` in `backend/src/auth/refresh-token.repository.ts`.
+I updated login so it returns both an access token and a refresh token.
+I added refresh-token hashing with SHA-256 in `backend/src/utils/hash.ts`.
+I added refresh-token JWT generation and verification in `backend/src/utils/jwt.ts`.
+I added `POST /auth/refresh` to rotate refresh tokens and return a new access/refresh token pair.
+I added `POST /auth/logout` to invalidate one refresh token.
+I added `POST /auth/logout-all` to invalidate all refresh tokens for the authenticated user.
+I added `authenticate` middleware in `backend/src/middleware/auth.middleware.ts` to validate Bearer access tokens and attach the decoded payload to `req.user`.
+I added the Express request type augmentation in `backend/src/types/express.d.ts` so TypeScript recognizes `req.user`.
+I added `authorize` middleware in `backend/src/middleware/authorize.middleware.ts` for role-based route protection.
+I protected user read routes with `authenticate` and protected `DELETE /users/:id` with `authenticate` plus `authorize("ADMIN")`.
+I updated user repository read queries to avoid returning password hashes from `GET /users` and `GET /users/:id`.
+I fixed the `ts-node-dev` TypeScript compile issue by adding `--files` to the backend `dev` script so ambient declaration files are loaded during development.
+I updated `DetailedNotes.md` with the current auth routes, token lifecycle, protected user routes, database table expectations, test order, and remaining cleanup items before pushing to GitHub.

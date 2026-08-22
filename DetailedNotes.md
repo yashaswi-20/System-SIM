@@ -1,8 +1,8 @@
 # Detailed Backend Handoff Notes for Vikash
 
-Date: 14 Jul 2026
+Date: 22 Aug 2026
 
-This file is the detailed handoff summary for the current backend state. It follows the same order as the work captured in `DevNotes.md`, then documents the current code flow, Redis cache behavior, and latest authentication/JWT changes.
+This file is the detailed handoff summary for the current backend state. It follows the same order as `DevNotes.md`, then documents the live route wiring, authentication flow, refresh-token lifecycle, protected user routes, Redis cache behavior, local test steps, and remaining cleanup work before pushing to GitHub.
 
 ## Current Backend Stack
 
@@ -10,18 +10,38 @@ The backend currently uses:
 
 - Express
 - TypeScript
-- PostgreSQL using the `pg` package
-- Redis using the `redis` package
+- PostgreSQL with the `pg` package
+- Redis with the `redis` package
 - Zod for request validation
 - Winston for logging
 - dotenv for environment variables
 - bcrypt for password hashing and comparison
-- jsonwebtoken for JWT access-token generation
+- jsonwebtoken for access and refresh JWTs
+- Node `crypto` for hashing refresh tokens before database storage
 
 Main backend files:
 
 - `backend/src/server.ts`
 - `backend/src/app.ts`
+- `backend/package.json`
+- `backend/tsconfig.json`
+
+## Current Scripts
+
+From `backend/package.json`:
+
+```json
+{
+  "dev": "ts-node-dev --respawn --files src/server.ts",
+  "build": "tsc",
+  "start": "node dist/server.ts"
+}
+```
+
+Important note:
+
+- `--files` is required in the dev script so `ts-node-dev` loads ambient declaration files like `backend/src/types/express.d.ts`.
+- Without `--files`, development startup can fail with `Property 'user' does not exist on type 'Request'` when `req.user` is used in auth middleware/controllers.
 
 ## Work Completed In Order
 
@@ -52,12 +72,10 @@ Validation and request parsing:
 
 - Added request validation for user routes using Zod.
 - Created `userSchema` in `backend/src/validators/user.validator.ts`.
-- The schema validates that `name` has at least 3 characters.
-- The schema validates that `email` is a valid email address.
 - Added reusable validation middleware in `backend/src/middleware/validate.middleware.ts`.
-- The validation middleware returns status `400` and `error.issues` when validation fails.
+- The validation middleware returns status `400` with `error.issues` when validation fails.
 - Added `express.json()` in `app.ts` so JSON request bodies are parsed.
-- Noted that macOS reserves port `5000` for AirPlay, so the backend uses port `4000`.
+- Noted that macOS can reserve port `5000` for AirPlay, so `4000` is the fallback port.
 
 Important files:
 
@@ -76,7 +94,7 @@ PostgreSQL support:
 - Enabled dotenv loading in `backend/src/server.ts`.
 - Updated the port config to use `process.env.PORT` with `4000` as fallback.
 - Added URL-encoded body parsing in `app.ts`.
-- Created a `/db-test` route that runs `SELECT NOW()` for database testing.
+- Created a `/db-test` route file for database testing.
 - Added temporary error logging in the global error middleware.
 
 Important files:
@@ -93,20 +111,11 @@ User type, repository, and service layer:
 
 - Added the `User` interface in `backend/src/types/user.types.ts`.
 - Created `UserRepository` in `backend/src/repositories/user.repository.ts`.
-- Added repository methods for:
-  - `findAll()`
-  - `findById(id)`
-  - `findByEmail(email)`
-  - `create(name, email)`
-  - `delete(id)`
-- Fixed the Postgres pool import to use the default export from `database/postgres.ts`.
-- Fixed the user list query to use `ORDER BY created_at DESC`.
-- Updated `findAll()` to return `Promise<User[]>`.
+- Added repository methods for finding all users, finding by id, finding by email, creating users, and deleting users.
 - Created `UserService` in `backend/src/services/user.service.ts`.
-- Added duplicate email checking in `createUser()`.
-- Added `AppError("Email already Exist", 409)` when the email already exists.
-- Added a first user route for fetching users.
-- Created this detailed handoff file.
+- Added duplicate email checking.
+- Added `AppError("Email already Exist", 409)` when the email already exists in the user creation flow.
+- Created the first user routes and this detailed handoff file.
 
 Important files:
 
@@ -116,97 +125,19 @@ Important files:
 - `backend/src/routes/user.routes.ts`
 - `DetailedNotes.md`
 
-### Current User Controller And Routes
-
-The current route layer now uses `UserController`.
-
-Current route file:
-
-- `backend/src/routes/user.routes.ts`
-
-Current routes:
-
-```ts
-router.get("/", controller.getUser);
-router.get("/:id", controller.getUserById);
-router.post("/", controller.createUser);
-router.delete("/:id", controller.deleteUser);
-```
-
-Current `POST /users` body expectation:
-
-```json
-{
-  "name": "Test User",
-  "email": "test@example.com",
-  "password": "password123"
-}
-```
-
-The current flow is:
-
-```txt
-Route -> Controller -> Service -> Repository -> Database
-```
-
-For `GET /users/:id`, the current flow includes Redis:
-
-```txt
-Route -> Controller -> Service -> Redis
-                         |
-                         -> Repository -> Database
-```
-
-Current controller file:
-
-- `backend/src/controllers/user.controller.ts`
-
-Controller methods:
-
-- `getUser`
-- `getUserById`
-- `createUser`
-- `deleteUser`
-
-Important security note:
-
-- `createUser()` removes `password` before returning the new user.
-- `getUser()` and `getUserById()` currently read with `SELECT *`, so password hashes may still appear in read responses unless sanitized.
-- This should be fixed before exposing these endpoints beyond local development.
-
 ### Yashaswi - 4 Jul 2026
 
 Redis cache metrics and user caching:
 
 - Created `backend/src/cache/cacheMetrices.ts`.
-- Added in-memory counters for:
-  - `cacheHits`
-  - `cacheMisses`
-  - `hitRate`
-- Added `incrementHits()`.
-- Added `incrementMisses()`.
-- Added `getMetrics()`.
-- Imported `cacheMetrices` into `backend/src/app.ts`.
-- Added `GET /cache/stats` in `app.ts`.
-- Kept `GET /redis-test` in `app.ts` for a Redis smoke test.
+- Added in-memory counters for cache hits, cache misses, and hit rate.
+- Added `GET /cache/stats`.
+- Kept `GET /redis-test` for a Redis smoke test.
 - Mounted the user router at `/users`.
-- Imported `redisClient`, `cacheMetrices`, and `logger` into `UserService`.
 - Updated `getUserById(id)` to check Redis before PostgreSQL.
-- Uses the Redis key format `user:${id}`.
-- On cache hit:
-  - increments cache hits
-  - logs `Cache HIT for user ${id}`
-  - parses the cached JSON
-  - returns the cached user
-- On cache miss:
-  - fetches the user from PostgreSQL
-  - throws `AppError("User not found", 404)` if no user exists
-  - increments cache misses
-  - logs `Cache MISS for user ${id}`
-  - stores the user in Redis for 1 hour using `EX: 3600`
-  - returns the database user
-- Updated `createUser(name, email)` to cache the newly created user under `user:${newUser.id}`.
-- Updated `deleteUser(id)` to delete the user from PostgreSQL and delete the matching Redis key.
+- Used Redis key format `user:${id}`.
+- Cached user lookups for 1 hour using `EX: 3600`.
+- Deleted the matching Redis key when a user is deleted.
 
 Important files:
 
@@ -220,51 +151,13 @@ Important files:
 Authentication, password hashing, and JWT support:
 
 - Added auth module files under `backend/src/auth`.
-- Added `backend/src/auth/auth.service.ts`.
-- Added `backend/src/auth/auth.controller.ts`.
-- Added `backend/src/auth/auth.routes.ts`.
+- Added `AuthService`, `AuthController`, and `auth.routes.ts`.
 - Mounted the auth router in `backend/src/app.ts` at `/auth`.
-- Added `bcrypt` and `jsonwebtoken` dependencies.
-- Added `backend/src/utils/password.ts` with:
-  - `hashPassword(password)`
-  - `comparePassword(password, hash)`
-- Added `backend/src/utils/jwt.ts`.
-- Added a typed JWT payload containing:
-  - `id`
-  - `email`
-  - `role`
-- JWT signing reads:
-  - `JWT_SECRET`
-  - `JWT_EXPIRES_IN`
-- JWT signing currently falls back to:
-  - secret: `fallback-secret-do-not-use-in-prod`
-  - expiry: `15m`
-- Fixed the `jwt.sign()` TypeScript overload issue by typing:
-  - `JWT_SECRET` as `Secret`
-  - `JWT_EXPIRES_IN` as `SignOptions["expiresIn"]`
-- Updated `User` to include:
-  - optional `password`
-  - required `role`
-- Updated `UserRepository.create()` to insert:
-  - `name`
-  - `email`
-  - `password`
-  - `role`
-- `UserRepository.create()` defaults role to `USER`.
-- Updated user creation so `POST /users` accepts a password, hashes it, stores the hash, deletes the password from the returned object, and caches the safe returned object.
-- Added `registerSchema` and `loginSchema` in `backend/src/validators/auth.validator.ts`.
-- Added login behavior in `AuthService.login(email, passwordPlain)`.
-- Login finds the user by email, compares the password hash, returns generic `Invalid credentials` errors on failure, signs an access token on success, removes `password`, and returns `{ user, accessToken }`.
-
-Important current route mismatch:
-
-- `backend/src/auth/auth.routes.ts` currently defines `POST /auth/register`.
-- That route currently uses `validate(registerSchema)`.
-- That route currently calls `controller.login`.
-- So the configured path says register, the validator expects a register-shaped body, but the controller behavior is login.
-- Before auth is considered complete, this should be changed to either:
-  - `POST /auth/login` with `loginSchema` and `controller.login`
-  - or a real `POST /auth/register` route using a restored register controller/service method
+- Added bcrypt password hashing and comparison helpers.
+- Added JWT access-token generation in `backend/src/utils/jwt.ts`.
+- Added typed JWT payload fields: `id`, `email`, and `role`.
+- Added auth validation schemas for register and login request bodies.
+- Added login behavior with generic `Invalid credentials` errors.
 
 Important files:
 
@@ -274,8 +167,37 @@ Important files:
 - `backend/src/validators/auth.validator.ts`
 - `backend/src/utils/password.ts`
 - `backend/src/utils/jwt.ts`
-- `backend/src/repositories/user.repository.ts`
-- `backend/src/types/user.types.ts`
+
+### Yashaswi - 22 Aug 2026
+
+Auth route cleanup, refresh tokens, protected routes, and dev compile fix:
+
+- Fixed auth route wiring so `/auth/register` calls `controller.register`.
+- Added `/auth/login` with `loginSchema` and `controller.login`.
+- Added refresh-token persistence through `RefreshTokenRepository`.
+- Added refresh-token hashing with SHA-256 before database storage.
+- Updated login to return both `accessToken` and `refreshToken`.
+- Added `/auth/refresh` to rotate refresh tokens.
+- Added `/auth/logout` to invalidate one refresh token.
+- Added `/auth/logout-all` to invalidate every refresh token for the authenticated user.
+- Added `authenticate` middleware to verify Bearer access tokens and attach payload data to `req.user`.
+- Added `backend/src/types/express.d.ts` so Express `Request` knows about `req.user`.
+- Added `authorize(...allowedRoles)` middleware for role checks.
+- Protected user read routes with `authenticate`.
+- Protected `DELETE /users/:id` with `authenticate` and `authorize("ADMIN")`.
+- Updated user read queries to return safe columns only, excluding password hashes.
+- Fixed the `ts-node-dev` compile issue by adding `--files` to the dev script.
+
+Important files:
+
+- `backend/src/auth/refresh-token.repository.ts`
+- `backend/src/middleware/auth.middleware.ts`
+- `backend/src/middleware/authorize.middleware.ts`
+- `backend/src/types/express.d.ts`
+- `backend/src/utils/hash.ts`
+- `backend/src/utils/jwt.ts`
+- `backend/src/routes/user.routes.ts`
+- `backend/package.json`
 
 ## Current App Wiring
 
@@ -308,20 +230,381 @@ Current active endpoints:
 ```txt
 GET    /health
 GET    /redis-test
+GET    /cache/stats
+
 POST   /auth/register
+POST   /auth/login
+POST   /auth/refresh
+POST   /auth/logout
+POST   /auth/logout-all
+
 GET    /users
 GET    /users/:id
-POST   /users
 DELETE /users/:id
-GET    /cache/stats
 ```
 
-Important route note:
+Important route notes:
 
 - The current user base path is `/users`.
-- Older notes mentioned `/user`; that is no longer the current mounted path.
 - The current auth base path is `/auth`.
-- `POST /auth/register` is currently configured, but it currently executes login behavior. See the auth mismatch note above.
+- `POST /users` is currently commented out in `backend/src/routes/user.routes.ts`.
+- New user registration currently happens through `POST /auth/register`.
+- `GET /users` and `GET /users/:id` require a valid Bearer access token.
+- `DELETE /users/:id` requires a valid Bearer access token and an `ADMIN` role.
+
+## Current Auth Routes
+
+Current auth route file:
+
+- `backend/src/auth/auth.routes.ts`
+
+Current route wiring:
+
+```ts
+router.post("/register", validate(registerSchema), controller.register);
+router.post("/login", validate(loginSchema), controller.login);
+router.post("/refresh", validate(refreshSchema), controller.refresh);
+router.post("/logout", authenticate, validate(logoutSchema), controller.logout);
+router.post("/logout-all", authenticate, controller.logoutAll);
+```
+
+### `POST /auth/register`
+
+Expected body:
+
+```json
+{
+  "name": "Test User",
+  "email": "test@example.com",
+  "password": "password123"
+}
+```
+
+Current behavior:
+
+- Validates the body with `registerSchema`.
+- Checks for duplicate email through `UserRepository.findByEmail(email)`.
+- Throws `AppError("Email already exists", 409)` if the email is already used.
+- Hashes the password using `hashPassword()`.
+- Creates the user through `UserRepository.create(name, email, passwordHash)`.
+- Defaults the role to `USER` in the repository.
+- Deletes `user.password` before returning the response.
+
+Current response shape:
+
+```json
+{
+  "success": true,
+  "user": {
+    "id": "...",
+    "name": "Test User",
+    "email": "test@example.com",
+    "role": "USER",
+    "created_at": "..."
+  }
+}
+```
+
+### `POST /auth/login`
+
+Expected body:
+
+```json
+{
+  "email": "test@example.com",
+  "password": "password123"
+}
+```
+
+Current behavior:
+
+- Validates the body with `loginSchema`.
+- Finds the user by email.
+- Uses a generic `AppError("Invalid credentials", 401)` if the user is missing or the password is wrong.
+- Compares the submitted password with the stored bcrypt hash using `comparePassword()`.
+- Signs an access token.
+- Signs a refresh token.
+- Hashes the refresh token with SHA-256.
+- Stores the hashed refresh token in PostgreSQL.
+- Sets the refresh-token database expiry to 7 days from login.
+- Deletes `user.password` before returning the response.
+
+Current response shape:
+
+```json
+{
+  "success": true,
+  "accessToken": "...",
+  "refreshToken": "...",
+  "user": {
+    "id": "...",
+    "name": "Test User",
+    "email": "test@example.com",
+    "role": "USER",
+    "created_at": "..."
+  }
+}
+```
+
+### `POST /auth/refresh`
+
+Expected body:
+
+```json
+{
+  "refreshToken": "..."
+}
+```
+
+Current behavior:
+
+- Validates the body with `refreshSchema`.
+- Hashes the incoming refresh token.
+- Looks up the hash in the `refresh_tokens` table.
+- Throws `AppError("Invalid or expired refresh token", 401)` if the hash is missing.
+- Verifies the refresh JWT signature and expiry.
+- Deletes the stored hash if JWT verification fails.
+- Generates a new access token and refresh token.
+- Hashes the new refresh token.
+- Deletes the old refresh-token hash.
+- Saves the new refresh-token hash.
+- Returns the new token pair.
+
+This is refresh-token rotation: every successful refresh invalidates the previous refresh token.
+
+### `POST /auth/logout`
+
+Expected headers:
+
+```txt
+Authorization: Bearer <accessToken>
+```
+
+Expected body:
+
+```json
+{
+  "refreshToken": "..."
+}
+```
+
+Current behavior:
+
+- Requires a valid access token through `authenticate`.
+- Validates the body with `logoutSchema`.
+- Hashes the submitted refresh token.
+- Deletes the matching refresh-token hash from PostgreSQL.
+- Returns a success message.
+
+### `POST /auth/logout-all`
+
+Expected headers:
+
+```txt
+Authorization: Bearer <accessToken>
+```
+
+Current behavior:
+
+- Requires a valid access token through `authenticate`.
+- Reads the authenticated user id from `req.user`.
+- Deletes all refresh-token rows for that user.
+- Returns a success message.
+
+## Current JWT And Token Behavior
+
+Current JWT helper file:
+
+- `backend/src/utils/jwt.ts`
+
+Current JWT payload:
+
+```ts
+{
+  id: user.id,
+  email: user.email,
+  role: user.role
+}
+```
+
+Access token settings:
+
+- Secret env var: `JWT_SECRET`
+- Expiry env var: `JWT_EXPIRES_IN`
+- Development fallback secret: `fallback-secret-do-not-use-in-prod`
+- Development fallback expiry: `15m`
+
+Refresh token settings:
+
+- Secret env var: `JWT_REFRESH_SECRET`
+- Expiry env var: `JWT_REFRESH_EXPIRES_IN`
+- Development fallback secret: `fallback-refresh-secret`
+- Development fallback expiry: `7d`
+
+Refresh-token storage:
+
+- The plain refresh token is returned to the client once.
+- The database stores only a SHA-256 hash of the refresh token.
+- Token hashing currently lives in `backend/src/utils/hash.ts`.
+- `backend/src/utils/token.ts` also contains a `hashToken()` helper and appears duplicated or unused.
+
+Production caution:
+
+- Do not rely on fallback JWT secrets outside local development.
+- Set both `JWT_SECRET` and `JWT_REFRESH_SECRET` in `.env` before deploying or sharing a deployed environment.
+
+## Current Auth Middleware
+
+### `authenticate`
+
+File:
+
+- `backend/src/middleware/auth.middleware.ts`
+
+Current behavior:
+
+- Reads the `Authorization` header.
+- Requires the header to start with `Bearer `.
+- Verifies the access token with `verifyAccessToken()`.
+- Attaches the decoded payload to `req.user`.
+- Sends an auth error through `AppError` when the token is missing, invalid, or expired.
+
+### Express Request Type Augmentation
+
+File:
+
+- `backend/src/types/express.d.ts`
+
+Current behavior:
+
+- Adds optional `user?: JwtPayload` to `Express.Request`.
+- This lets TypeScript accept `req.user` in middleware and controllers.
+- The backend dev script uses `--files` so this declaration is loaded by `ts-node-dev`.
+
+### `authorize`
+
+File:
+
+- `backend/src/middleware/authorize.middleware.ts`
+
+Current behavior:
+
+- Accepts allowed roles like `authorize("ADMIN")`.
+- Requires `req.user` to exist.
+- Returns `401` if the request is not authenticated.
+- Returns `403` if the authenticated user's role is not allowed.
+- Calls `next()` when the role is allowed.
+
+## Current User Routes
+
+Current route file:
+
+- `backend/src/routes/user.routes.ts`
+
+Current route wiring:
+
+```ts
+router.get("/", authenticate, controller.getUser);
+router.get("/:id", authenticate, controller.getUserById);
+// router.post("/", controller.createUser);
+router.delete("/:id", authenticate, authorize("ADMIN"), controller.deleteUser);
+```
+
+Current behavior:
+
+- `GET /users` requires authentication.
+- `GET /users/:id` requires authentication.
+- `DELETE /users/:id` requires authentication and the `ADMIN` role.
+- `POST /users` is not currently active.
+
+Current response shape for reads:
+
+```json
+{
+  "success": true,
+  "data": []
+}
+```
+
+## Current User Service And Repository Behavior
+
+Current service file:
+
+- `backend/src/services/user.service.ts`
+
+Current repository file:
+
+- `backend/src/repositories/user.repository.ts`
+
+### `getUsers()`
+
+Current behavior:
+
+- Calls `UserRepository.findAll()`.
+- `findAll()` returns only safe fields:
+  - `id`
+  - `name`
+  - `email`
+  - `role`
+  - `created_at`
+- Password hashes are not returned by the current list query.
+
+### `getUserById(id)`
+
+Redis key:
+
+```txt
+user:${id}
+```
+
+Current behavior:
+
+- Reads from Redis first.
+- On cache hit:
+  - increments cache hits
+  - logs `Cache HIT for user ${id}`
+  - returns `JSON.parse(cacheData)`
+- On cache miss:
+  - fetches the user from PostgreSQL
+  - throws `AppError("User not found", 404)` if no user exists
+  - increments cache misses
+  - logs `Cache MISS for user ${id}`
+  - stores the user in Redis for 1 hour with `EX: 3600`
+  - returns the database user
+- `findById()` returns only safe fields and does not select the password hash.
+
+### `createUser(name, email, passwordPlain)`
+
+Current status:
+
+- The service method still exists.
+- The route using it, `POST /users`, is currently commented out.
+- Registration currently happens through `AuthService.register()`.
+
+Current behavior if called:
+
+- Checks for an existing user by email.
+- Throws status `409` if the email already exists.
+- Hashes the plain password directly with bcrypt.
+- Creates the user in PostgreSQL.
+- Deletes `newUser.password` before caching and returning.
+- Stores the safe new user in Redis using `user:${newUser.id}` without an expiry.
+
+Cleanup note:
+
+- This method can be removed, reactivated with validation, or aligned to use `hashPassword()` depending on the final API design.
+
+### `deleteUser(id)`
+
+Current behavior:
+
+- Deletes the user from PostgreSQL.
+- Deletes Redis key `user:${id}`.
+- Does not currently check whether a row was deleted before returning success.
+
+Cleanup note:
+
+- Consider returning `404` when the user does not exist.
 
 ## Current Redis Files
 
@@ -332,8 +615,8 @@ Redis client file:
 Current behavior:
 
 - Creates the Redis client with `createClient()`.
-- Logs Redis client errors with Winston.
 - Connects immediately when the module is imported.
+- Logs Redis client errors with Winston.
 - Logs success when Redis connects.
 - Logs failure if Redis connection fails.
 - Exports `redisClient`.
@@ -354,153 +637,13 @@ Current metric response shape:
 
 Notes:
 
-- Metrics are stored in memory, so they reset when the backend process restarts.
+- Metrics are stored in memory and reset when the backend process restarts.
 - Metrics currently count `getUserById()` cache hits and misses.
 - The file and export are currently named `cacheMetrices`.
 
-## Current Auth Flow
+## Current Database Expectations
 
-Current auth files:
-
-- `backend/src/auth/auth.routes.ts`
-- `backend/src/auth/auth.controller.ts`
-- `backend/src/auth/auth.service.ts`
-- `backend/src/validators/auth.validator.ts`
-- `backend/src/utils/password.ts`
-- `backend/src/utils/jwt.ts`
-
-Current configured auth route:
-
-```ts
-router.post("/register", validate(registerSchema), controller.login);
-```
-
-Actual current behavior:
-
-- Mounted path is `POST /auth/register`.
-- The request is validated with `registerSchema`.
-- The controller method that runs is `login`.
-- `login` expects `email` and `password`.
-- `AuthService.login()` finds the user by email.
-- It compares the submitted password with the stored bcrypt hash using `comparePassword()`.
-- It throws `AppError("Invalid credentials", 401)` if the email is missing or the password is wrong.
-- It signs an access token with `generateAccessToken()`.
-- It removes `user.password` before returning.
-- It returns `{ user, accessToken }`.
-
-Current JWT payload:
-
-```ts
-{
-  id: user.id,
-  email: user.email,
-  role: user.role
-}
-```
-
-Current auth validation schemas:
-
-- `registerSchema` requires `name`, valid `email`, and `password` between 8 and 64 characters.
-- `loginSchema` requires valid `email` and a non-empty `password`.
-
-Important caution:
-
-- The register method in `AuthController` and `AuthService` is currently commented out.
-- There is currently no configured `POST /auth/login` route.
-- The current `POST /auth/register` route behaves like login, not registration.
-- This route should be corrected before frontend or API consumers depend on it.
-
-## Current User Service Behavior
-
-Current service file:
-
-- `backend/src/services/user.service.ts`
-
-Methods:
-
-- `getUsers()`
-- `getUserById(id)`
-- `createUser(name, email, passwordPlain)`
-- `deleteUser(id)`
-
-### `getUsers()`
-
-Fetches all users from PostgreSQL through `UserRepository.findAll()`.
-
-Current caution:
-
-- The repository currently uses `SELECT *`, so returned rows can include password hashes.
-- Response sanitization should be added for list/read endpoints.
-
-### `getUserById(id)`
-
-Uses Redis first:
-
-```txt
-Redis key: user:${id}
-```
-
-Behavior:
-
-- Reads from Redis with `redisClient.get(cacheKey)`.
-- If cached data exists, it increments cache hits and returns `JSON.parse(cacheData)`.
-- If cached data does not exist, it reads from PostgreSQL.
-- If PostgreSQL returns no user, it throws `AppError("User not found", 404)`.
-- If PostgreSQL returns a user, it increments cache misses and caches the user for 1 hour.
-- Current caution: database misses can cache the full repository row, including `password`, unless the user is sanitized first.
-
-### `createUser(name, email, passwordPlain)`
-
-Behavior:
-
-- Checks for an existing user by email.
-- Throws status `409` if the email already exists.
-- Hashes the plain password with bcrypt using 10 salt rounds.
-- Creates the user in PostgreSQL with the hashed password.
-- The repository defaults `role` to `USER`.
-- Deletes `newUser.password` before caching and returning.
-- Stores the safe newly created user in Redis using `user:${newUser.id}`.
-- Returns the created user.
-
-Current caution:
-
-- This method imports bcrypt directly.
-- `backend/src/utils/password.ts` also exists, so this can be aligned later to use `hashPassword()`.
-- The cached user from `createUser()` currently has no Redis expiry.
-
-### `deleteUser(id)`
-
-Behavior:
-
-- Deletes the user from PostgreSQL.
-- Deletes the Redis cache key `user:${id}`.
-- Does not currently return the deleted user.
-
-## How To Run And Test
-
-From the backend folder:
-
-```bash
-cd backend
-npm run dev
-```
-
-Expected server URL:
-
-```txt
-http://localhost:4000
-```
-
-Requirements:
-
-- PostgreSQL must be running.
-- `.env` must contain `DATABASE_URL`.
-- `.env` should contain `JWT_SECRET`.
-- `.env` can contain `JWT_EXPIRES_IN`; it defaults to `15m` if missing.
-- Redis must be running and reachable by the default Redis client config.
-- The database must have a `users` table.
-
-The `users` table should match the current `User` type:
+The backend expects a `users` table with columns compatible with:
 
 ```ts
 export interface User {
@@ -513,7 +656,7 @@ export interface User {
 }
 ```
 
-The current repository insert expects these database columns:
+The user repository expects these columns:
 
 ```txt
 id
@@ -524,54 +667,186 @@ role
 created_at
 ```
 
-Manual test order:
+The backend also expects a `refresh_tokens` table used by `RefreshTokenRepository`.
+
+The current repository queries require at least these refresh-token columns:
 
 ```txt
-GET    http://localhost:4000/health
-GET    http://localhost:4000/redis-test
-POST   http://localhost:4000/users              body: name, email, password
-GET    http://localhost:4000/users
-GET    http://localhost:4000/users/:id
-GET    http://localhost:4000/users/:id
-GET    http://localhost:4000/cache/stats
-POST   http://localhost:4000/auth/register      currently behaves like login
-DELETE http://localhost:4000/users/:id
-GET    http://localhost:4000/users/:id
+user_id
+token_hash
+expires_at
 ```
 
-Current auth test note:
+Recommended refresh-token table details:
 
-- Because `POST /auth/register` currently uses `registerSchema` but calls `controller.login`, the test body must include `name`, `email`, and `password`, but the route will only use `email` and `password`.
-- The email must already exist in the database with a bcrypt-hashed password.
-- This is a temporary mismatch, not the intended final auth API.
+- `token_hash` should be indexed.
+- `token_hash` should be unique if each stored refresh token must be single-use.
+- `user_id` should be indexed for `logout-all`.
+- A cleanup job or query should remove expired rows over time.
+
+## How To Run Locally
+
+From the backend folder:
+
+```bash
+cd backend
+npm run dev
+```
+
+Expected server URL:
+
+```txt
+http://localhost:<PORT>
+```
+
+Port behavior:
+
+- `server.ts` uses `process.env.PORT`.
+- If `PORT` is missing, it falls back to `4000`.
+
+Required local services:
+
+- PostgreSQL must be running.
+- Redis must be running and reachable by the default Redis client config.
+
+Required environment variables:
+
+```txt
+DATABASE_URL
+JWT_SECRET
+JWT_REFRESH_SECRET
+```
+
+Optional environment variables:
+
+```txt
+PORT
+JWT_EXPIRES_IN
+JWT_REFRESH_EXPIRES_IN
+```
+
+Build check:
+
+```bash
+cd backend
+npm run build
+```
+
+## Manual Test Order
+
+Start with health and Redis:
+
+```txt
+GET http://localhost:4000/health
+GET http://localhost:4000/redis-test
+GET http://localhost:4000/cache/stats
+```
+
+Register a user:
+
+```txt
+POST http://localhost:4000/auth/register
+body: name, email, password
+```
+
+Login:
+
+```txt
+POST http://localhost:4000/auth/login
+body: email, password
+```
+
+Save the returned:
+
+```txt
+accessToken
+refreshToken
+```
+
+Use the access token for protected user routes:
+
+```txt
+GET http://localhost:4000/users
+Authorization: Bearer <accessToken>
+
+GET http://localhost:4000/users/:id
+Authorization: Bearer <accessToken>
+```
+
+Check cache behavior:
+
+```txt
+GET http://localhost:4000/users/:id
+GET http://localhost:4000/users/:id
+GET http://localhost:4000/cache/stats
+```
 
 Expected cache behavior:
 
 - The first `GET /users/:id` should miss Redis, fetch from PostgreSQL, and cache the user.
 - The second `GET /users/:id` for the same id should hit Redis.
 - `GET /cache/stats` should show updated `cacheHits`, `cacheMisses`, and `hitRate`.
-- `DELETE /users/:id` should remove the database row and delete the Redis cache key.
+
+Refresh the session:
+
+```txt
+POST http://localhost:4000/auth/refresh
+body: refreshToken
+```
+
+Expected refresh behavior:
+
+- The old refresh token becomes invalid.
+- The response returns a new `accessToken` and `refreshToken`.
+- Use the new refresh token for future refresh/logout calls.
+
+Logout one session:
+
+```txt
+POST http://localhost:4000/auth/logout
+Authorization: Bearer <accessToken>
+body: refreshToken
+```
+
+Logout all sessions:
+
+```txt
+POST http://localhost:4000/auth/logout-all
+Authorization: Bearer <accessToken>
+```
+
+Admin-only delete:
+
+```txt
+DELETE http://localhost:4000/users/:id
+Authorization: Bearer <adminAccessToken>
+```
+
+Important delete note:
+
+- The access token must contain `role: "ADMIN"`.
+- Normal `USER` accounts should receive `403`.
 
 ## Important Pending Work
 
-Pending items:
+Pending items before this is treated as production-ready:
 
-- Fix auth route wiring: add `POST /auth/login` with `loginSchema` and `controller.login`, or restore a real `POST /auth/register` handler.
-- Decide whether registration should live under `/auth/register` or continue through `POST /users`.
-- Add validation middleware to `POST /users`; the current body now needs `name`, `email`, and `password`.
-- Sanitize password hashes from `GET /users`, `GET /users/:id`, and Redis cache writes after database reads.
-- Align password hashing to use `backend/src/utils/password.ts` consistently instead of direct bcrypt usage in `UserService`.
-- Add JWT verification middleware for protected routes.
-- Decide how `role` should be assigned and validated beyond the repository default of `USER`.
+- Add SQL migration files or schema documentation for `users` and `refresh_tokens`.
+- Add automated tests for register, login, refresh rotation, logout, logout-all, protected user routes, and role authorization.
+- Add validation middleware if `POST /users` is reactivated.
+- Decide whether `POST /users` should stay removed now that registration lives under `/auth/register`.
+- Align or remove `UserService.createUser()` because it still hashes directly with bcrypt while auth uses `hashPassword()`.
+- Remove duplicated or unused refresh-token hashing helper code in `backend/src/utils/token.ts` if `backend/src/utils/hash.ts` is the final helper.
+- Remove `UserRepository.storeRefreshToken()` if `RefreshTokenRepository` is the final owner for refresh-token persistence.
 - Decide whether missing deletes should return `404` instead of always returning success.
-- Consider changing `UserRepository.delete(id)` to return `Promise<User | null>`.
-- Align Redis TTL behavior: `getUserById()` caches with `EX: 3600`, while `createUser()` currently stores without an expiry.
+- Enforce `expires_at` in `RefreshTokenRepository.findToken()` or add cleanup for expired refresh-token rows.
 - Decide whether to rename `cacheMetrices` to `cacheMetrics` for spelling consistency.
-- Decide whether `/redis-test` should remain in production-facing app wiring.
-- Decide whether `/db-test` should be re-mounted or kept only as old test code.
+- Decide whether `/redis-test` should remain mounted in production-facing app wiring.
+- Decide whether `/db-test` should be re-mounted, deleted, or kept only as old local test code.
 - Consider adding a Redis URL environment variable if local/default Redis is not enough.
-- Add automated tests for service caching behavior, user controller routes, and auth login/JWT behavior.
+- Standardize response shapes across auth and user routes if the frontend needs one consistent API format.
+- Before pushing to GitHub, check repository hygiene because root `node_modules` appears to be tracked.
 
 ## Short Summary
 
-The backend now has a full user flow through route, controller, service, and repository layers. Users are mounted under `/users`. Redis is connected through `backend/src/cache/redis.ts`, individual user lookups are cached by id, and `GET /cache/stats` exposes in-memory cache hit and miss metrics. Auth files now exist under `backend/src/auth`, JWT access-token generation is available through `backend/src/utils/jwt.ts`, and password comparison is available through `backend/src/utils/password.ts`. The main auth cleanup is to align the current `/auth/register` route with the intended register/login behavior.
+The backend now has user, auth, cache, and role-protection flows in place. Auth supports registration, login, refresh-token rotation, single-session logout, and logout-all. User reads are protected by access-token auth, user deletion is restricted to `ADMIN`, and user read queries avoid returning password hashes. Redis caches individual user lookups and exposes hit/miss metrics through `/cache/stats`. The biggest remaining work is test coverage, database schema/migration documentation, refresh-token expiry cleanup, and GitHub repository hygiene before pushing.

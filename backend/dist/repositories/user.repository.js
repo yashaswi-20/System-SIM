@@ -7,11 +7,11 @@ exports.UserRepository = void 0;
 const postgres_1 = __importDefault(require("../database/postgres"));
 class UserRepository {
     async findAll() {
-        const result = await postgres_1.default.query(`SELECT * FROM users ORDER BY created_at DESC`);
+        const result = await postgres_1.default.query(`SELECT id, name, email, role, created_at FROM users ORDER BY created_at DESC`);
         return result.rows;
     }
     async findById(id) {
-        const result = await postgres_1.default.query(`SELECT * FROM users WHERE id = $1`, [id]);
+        const result = await postgres_1.default.query(`SELECT id, name, email, role, created_at FROM users WHERE id = $1`, [id]);
         return result.rows[0] || null;
     }
     async create(name, email, passwordHash, role = "USER") {
@@ -25,6 +25,9 @@ class UserRepository {
     async findByEmail(email) {
         const result = await postgres_1.default.query(`SELECT * FROM users WHERE email=$1`, [email]);
         return result.rows[0] || null;
+    }
+    async storeRefreshToken(userId, tokenHash, expiresAt) {
+        await postgres_1.default.query(`INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`, [userId, tokenHash, expiresAt]);
     }
 }
 exports.UserRepository = UserRepository;

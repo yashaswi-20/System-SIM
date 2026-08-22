@@ -3,13 +3,31 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateAccessToken = void 0;
+exports.verifyAccessToken = exports.verifyRefreshToken = exports.generateRefreshToken = exports.generateAccessToken = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret-do-not-use-in-prod";
 const JWT_EXPIRES_IN = (process.env.JWT_EXPIRES_IN || "15m");
+// Add Refresh Token Secrets
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || "fallback-refresh-secret";
+const JWT_REFRESH_EXPIRES_IN = (process.env.JWT_REFRESH_EXPIRES_IN || "7d");
+;
 const generateAccessToken = (payload) => {
     return jsonwebtoken_1.default.sign(payload, JWT_SECRET, {
         expiresIn: JWT_EXPIRES_IN,
     });
 };
 exports.generateAccessToken = generateAccessToken;
+// New: Generate Refresh Token
+const generateRefreshToken = (payload) => {
+    return jsonwebtoken_1.default.sign(payload, JWT_REFRESH_SECRET, { expiresIn: JWT_REFRESH_EXPIRES_IN });
+};
+exports.generateRefreshToken = generateRefreshToken;
+const verifyRefreshToken = (token) => {
+    // jwt.verify automatically throws an error if the token is invalid or expired
+    return jsonwebtoken_1.default.verify(token, JWT_REFRESH_SECRET);
+};
+exports.verifyRefreshToken = verifyRefreshToken;
+const verifyAccessToken = (token) => {
+    return jsonwebtoken_1.default.verify(token, JWT_SECRET);
+};
+exports.verifyAccessToken = verifyAccessToken;
